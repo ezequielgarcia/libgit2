@@ -247,6 +247,70 @@ int git_diff_get_stats(
 	return error;
 }
 
+int git_diff_get_delta_stats(
+	git_diff_stats **out,
+	git_diff *diff,
+	size_t idx)
+{
+	const git_diff_delta *delta;
+	size_t deltas;
+	git_diff_stats *stats = NULL;
+	int error = 0;
+	git_patch *patch = NULL;
+	size_t add = 0, remove = 0, namelen;
+
+	assert(out && diff);
+
+	deltas = git_diff_num_deltas(diff);
+	if (idx >= deltas)
+		return -1;
+
+	if ((delta = git_diff_get_delta(diff, idx)) == NULL)
+		return -1;
+
+	stats = git__calloc(1, sizeof(git_diff_stats));
+	GIT_ERROR_CHECK_ALLOC(stats);
+
+	stats->diff = diff;
+	GIT_REFCOUNT_INC(diff);
+
+	if ((error = git_patch_from_diff(&patch, diff, idx)) < 0) {
+		git__free(stats);
+		return -1;
+	}
+		
+
+	/* TODO ugh */
+	namelen = strlen(delta->new_file.path);
+	if (strcmp(delta->old_file.path, delta->new_file.path) != 0) {
+		namelen += strlen(delta->old_file.path);
+		stats->renames++;
+	}
+
+	/* and, of course, count the line stats */
+	error = git_patch_line_stats(NULL, &add, &remove, patch);
+
+	git_patch_free(patch);
+
+	if (error < 0) {
+		git_diff_stats_free(stats);
+		stats = NULL;
+	}
+
+	stats->files_changed = 1;
+	stats->insertions = add;
+	stats->deletions = remove;
+
+	if (stats->max_name < namelen)
+		stats->max_name = namelen;
+	if (stats->max_filestat < add + remove)
+		stats->max_filestat = add + remove;
+	stats->max_digits = digits_for_value(stats->max_filestat + 1);
+
+	*out = stats;
+	return error;
+}
+
 size_t git_diff_stats_files_changed(
 	const git_diff_stats *stats)
 {
